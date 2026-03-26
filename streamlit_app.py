@@ -86,5 +86,12 @@ with tab2:
     if up_file:
         try:
             raw = pd.read_csv(io.StringIO(up_file.getvalue().decode('utf-8-sig')), header=None).fillna("")
-            # 전수 조사 로직 (에러 방지 핵심)
+            # 지능형 검색 파싱
             for r in range(len(raw)):
+                for c in range(raw.shape[1]):
+                    cell = str(raw.iloc[r, c]).strip()
+                    # 요약 정보 찾기
+                    if "현 잔액" in cell and r + 1 < len(raw): st.session_state.summary_data["잔액"] = str(raw.iloc[r+1, c])
+                    if "본전" in cell and "$" in cell and r + 1 < len(raw): st.session_state.summary_data["본전"] = str(raw.iloc[r+1, c])
+                    if "수익" in cell and "누적" in cell and r + 1 < len(raw): st.session_state.summary_data["수익"] = str(raw.iloc[r+1, c])
+                    if "총 투
