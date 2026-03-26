@@ -43,9 +43,9 @@ def parse_money(money_str):
 if 'main_df' not in st.session_state: 
     st.session_state.main_df = pd.DataFrame(columns=["날짜", "종목명", "포지션", "매수가", "매도가", "수익", "비고"])
 if 'monthly_data' not in st.session_state: 
-    # 연도별로 데이터를 담을 수 있게 딕셔너리 구조로 변경
+    # 연도별로 데이터를 관리할 수 있도록 구조화
     st.session_state.monthly_data = {
-        "2026": pd.DataFrame(index=["수익($)", "수익(₩)"], columns=[f"{i}월" for i in range(1, 13)]).fillna(0.0)
+        "2026": pd.DataFrame(0.0, index=["수익($)", "수익(₩)"], columns=[f"{i}월" for i in range(1, 13)])
     }
 if 'loan_df' not in st.session_state: 
     st.session_state.loan_df = pd.DataFrame([
@@ -98,11 +98,16 @@ with tab2:
                     if "총 투입금" in cell and r + 1 < len(raw): st.session_state.summary_data["투입"] = str(raw.iloc[r+1, c])
                     
                     if "1월" in cell and r + 2 < len(raw):
-                        m_row_1 = [parse_money(x) for x in raw.iloc[r+1, c:c+12].tolist()]
-                        m_row_2 = [parse_money(x) for x in raw.iloc[r+2, c:c+12].tolist()]
-                        # 일단 2026년 데이터로 로드
+                        # 동적 열 처리: 데이터가 12개가 안 되더라도 에러 없이 가져옴
+                        m_usd = [parse_money(x) for x in raw.iloc[r+1, c:c+12].tolist()]
+                        m_krw = [parse_money(x) for x in raw.iloc[r+2, c:c+12].tolist()]
+                        
+                        # 부족한 달은 0.0으로 채워줌 (127 에러 방지 핵심)
+                        m_usd += [0.0] * (12 - len(m_usd))
+                        m_krw += [0.0] * (12 - len(m_krw))
+                        
                         st.session_state.monthly_data["2026"] = pd.DataFrame(
-                            [m_row_1, m_row_2], 
+                            [m_usd[:12], m_krw[:12]], 
                             columns=[f"{i}월" for i in range(1, 13)], index=["수익($)", "수익(₩)"]
                         )
                     
@@ -112,7 +117,7 @@ with tab2:
                         cols_to_drop = [x for x in df.columns if any(y in str(x).lower() for y in ['no', '비고2', 'unnamed'])]
                         st.session_state.main_df = df.drop(columns=cols_to_drop, errors='ignore').dropna(how='all')
             st.success("데이터 로드 완료!")
-        except Exception as e: st.error(f"로드 실패: {e}")
+        except Exception as e: st.error(f"파일 로드 중 오류 발생: {e}")
 
     st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True)
     csv_log = st.session_state.main_df.to_csv(index=False).encode('utf-8-sig')
@@ -137,24 +142,24 @@ with tab1:
     m(cd, "본전 수익목표", s.get('본전', '0'), f"₩{parse_money(s.get('본전', '0'))*safe_ex:,.0f}")
     
     st.write("---")
-    # 연도별 정리 기능 추가
-    st.subheader("🗓️ 연도별 월별 수익 현황")
-    selected_year = st.selectbox("조회 연도 선택", list(st.session_state.monthly_data.keys()), label_visibility="collapsed")
+    st.subheader("🗓️ 연도별 수익 현황 (두 줄 표기)")
+    # 연도 선택 기능
+    selected_year = st.selectbox("조회 연도", sorted(list(st.session_state.monthly_data.keys()), reverse=True))
     
     if selected_year in st.session_state.monthly_data:
         # 달러/원화 두 줄 표기 테이블
         st.table(st.session_state.monthly_data[selected_year].style.format("{:,.2f}"))
     
-    if st.button("➕ 새로운 연도 추가 (예: 2027)"):
-        new_year = str(int(max(st.session_state.monthly_data.keys())) + 1)
-        st.session_state.monthly_data[new_year] = pd.DataFrame(index=["수익($)", "수익(₩)"], columns=[f"{i}월" for i in range(1, 13)]).fillna(0.0)
+    if st.button("➕ 다음 연도 추가"):
+        next_year = str(int(max(st.session_state.monthly_data.keys())) + 1)
+        st.session_state.monthly_data[next_year] = pd.DataFrame(0.0, index=["수익($)", "수익(₩)"], columns=[f"{i}월" for i in range(1, 13)])
         st.rerun()
 
 with tab3:
     st.subheader("💳 대출 & 상환 관리 (자동 합계)")
-    st.info("💡 줄을 추가하고 금액을 입력해 봐. 3자리 쉼표가 자동으로 붙고 데이터가 보존돼!")
+    st.info("💡 3자리마다 쉼표(,)가 표시되며 줄을 추가해도 데이터가 유지돼!")
     
-    # 3자리 쉼표 및 입력 유지 설정
+    # 3자리 쉼표 표시 및 입력값 유지 설정
     st.session_state.loan_df = st.data_editor(
         st.session_state.loan_df, 
         num_rows="dynamic", 
@@ -163,7 +168,7 @@ with tab3:
             "대출금액": st.column_config.NumberColumn("대출금액", format="#,###"),
             "상환금액": st.column_config.NumberColumn("상환금액", format="#,###")
         },
-        key="loan_editor_final"
+        key="loan_editor_final_v11" # 고유 키를 사용해 상태 보존
     )
     
     t_l = st.session_state.loan_df['대출금액'].apply(parse_money).sum()
@@ -178,6 +183,5 @@ with tab3:
         </div>
     </div>
     """, unsafe_allow_html=True)
-    
     loan_csv = st.session_state.loan_df.to_csv(index=False).encode('utf-8-sig')
     st.download_button("📥 대출내역 다운로드", loan_csv, "loan_history.csv", "text/csv")
