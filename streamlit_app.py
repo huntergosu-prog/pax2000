@@ -44,7 +44,7 @@ def parse_money(money_str):
         return float(clean) if clean else 0.0
     except: return 0.0
 
-# 3. 데이터 세션 상태 초기화 (중요: 에러 방지를 위해 summary_data를 딕셔너리로 초기화)
+# 3. 데이터 세션 상태 초기화
 if 'main_df' not in st.session_state: st.session_state.main_df = pd.DataFrame()
 if 'monthly_df' not in st.session_state: st.session_state.monthly_df = pd.DataFrame()
 if 'loan_df' not in st.session_state: st.session_state.loan_df = pd.DataFrame()
@@ -87,7 +87,7 @@ with tab2:
             content = uploaded_file.getvalue().decode('utf-8-sig')
             raw = pd.read_csv(io.StringIO(content), header=None)
             
-            # A. 월별 수익 파싱 (Row 4~6)
+            # A. 월별 수익 파싱
             try:
                 m_header = raw.iloc[4, 8:20].tolist()
                 m_usd = raw.iloc[5, 8:20].tolist()
@@ -95,31 +95,35 @@ with tab2:
                 st.session_state.monthly_df = pd.DataFrame({"월": m_header, "수익($)": m_usd, "수익(₩)": m_krw}).set_index("월").T
             except: pass
             
-            # B. 대출 정보 파싱 (Row 1~2, Col 15~18)
+            # B. 대출 정보 파싱 + 상환액 컬럼 추가
             try:
                 l_names = raw.iloc[1, 15:19].tolist()
                 l_vals = raw.iloc[2, 15:19].tolist()
-                st.session_state.loan_df = pd.DataFrame({"대출처": l_names, "금액": l_vals})
+                st.session_state.loan_df = pd.DataFrame({
+                    "대출처": l_names, 
+                    "대출금액": l_vals,
+                    "상환금액": ["₩0"] * len(l_names) # 초기값 설정
+                })
             except: pass
 
-            # C. 요약 지표 (Row 2)
+            # C. 요약 지표 파싱 (달러/원화 분리 추출)
             try:
                 st.session_state.summary_data = {
-                    "총투입": str(raw.iloc[2, 12]),
-                    "잔액": str(raw.iloc[2, 8]),
-                    "누적수익": str(raw.iloc[2, 11]),
-                    "본전목표": str(raw.iloc[2, 10])
+                    "잔액_USD": raw.iloc[2, 2], # 달러 잔액 위치
+                    "잔액_KRW": raw.iloc[2, 8],
+                    "수익_USD": raw.iloc[2, 3],
+                    "수익_KRW": raw.iloc[2, 11],
+                    "투입_KRW": raw.iloc[2, 12],
+                    "본전_USD": raw.iloc[2, 10]
                 }
             except: pass
 
-            # D. 매매일지 파싱 (헤더 기반)
+            # D. 매매일지 파싱
             header_idx = -1
             for i in range(len(raw)):
-                row_vals = raw.iloc[i].astype(str).tolist()
-                if "종목명" in row_vals and "매수가" in row_vals:
+                if "종목명" in str(raw.iloc[i].values):
                     header_idx = i
                     break
-            
             if header_idx != -1:
                 df = raw.iloc[header_idx:].copy()
                 df.columns = df.iloc[0]
@@ -128,28 +132,36 @@ with tab2:
                 st.session_state.main_df = df.drop(columns=cols_to_drop, errors='ignore').dropna(how='all')
             
             st.success("데이터 로드 완료!")
-        except Exception as e:
-            st.error(f"로드 실패: {e}")
+        except Exception as e: st.error(f"로드 실패: {e}")
 
     if not st.session_state.main_df.empty:
-        st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, height=600)
+        st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, height=550)
 
 with tab1:
     ca, cb, cc, cd = st.columns(4)
-    # 딕셔너리에서 데이터 가져오기 (에러 방지)
     sum_d = st.session_state.summary_data
     
-    ca.metric("총 투입금", sum_d.get("총투입", "₩40,000,000"))
-    cb.metric("현재 잔액", sum_d.get("잔액", "₩18,012,969"))
-    cc.metric("누적 수익", sum_d.get("누적수익", "-₩21,987,031"))
-    cd.metric("본전 수익목표", sum_d.get("본전목표", "$14,410.42"))
+    # 이중 표기 함수 재적용
+    def asset_metric(col, label, usd, krw):
+        with col:
+            st.caption(label)
+            st.subheader(usd if usd else "$0.00")
+            st.markdown(f"<p class='krw-label'>{krw if krw else '₩0'}</p>", unsafe_allow_html=True)
+
+    asset_metric(ca, "총 투입금", f"${parse_money(sum_d.get('투입_KRW'))/ex_rate:,.2f}", sum_d.get("투입_KRW", "₩40,000,000"))
+    asset_metric(cb, "현재 잔액", sum_d.get("잔액_USD", "$12,487.33"), sum_d.get("잔액_KRW", "₩18,012,969"))
+    asset_metric(cc, "누적 수익", sum_d.get("수익_USD", "-$15,242.31"), sum_d.get("수익_KRW", "-₩21,987,031"))
+    asset_metric(cd, "본전 수익목표", sum_d.get("본전_USD", "$14,410.42"), f"₩{parse_money(sum_d.get('본전_USD'))*ex_rate:,.0f}")
     
     st.write("---")
     st.subheader("🗓️ 월별 수익 요약")
-    if not st.session_state.monthly_df.empty:
-        st.table(st.session_state.monthly_df)
+    if not st.session_state.monthly_df.empty: st.table(st.session_state.monthly_df)
 
 with tab3:
-    st.subheader("💳 대출 및 출금 현황")
+    st.subheader("💳 대출 및 상환 현황")
     if not st.session_state.loan_df.empty:
-        st.table(st.session_state.loan_df)
+        # 상환금액을 입력할 수 있도록 에디터로 변경
+        edited_loan = st.data_editor(st.session_state.loan_df, use_container_width=True)
+        if st.button("💾 상환 정보 저장"):
+            st.session_state.loan_df = edited_loan
+            st.success("상환 정보가 반영됐어!")
