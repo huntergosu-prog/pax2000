@@ -35,21 +35,20 @@ def get_exchange_rate():
 def parse_money(money_str):
     if pd.isna(money_str) or str(money_str).strip() == "" or str(money_str).lower() == "nan": return 0.0
     try:
-        # 숫자, 소수점, 마이너스만 남기기
         clean = re.sub(r'[^\d.-]', '', str(money_str))
         return float(clean) if clean else 0.0
     except: return 0.0
 
-# 3. 데이터 세션 상태 초기화 (에러 방지 핵심)
+# 3. 데이터 세션 상태 초기화 (에러 방지용 초기값)
 if 'main_df' not in st.session_state: 
     st.session_state.main_df = pd.DataFrame(columns=["날짜", "종목명", "포지션", "매수가", "매도가", "수익", "비고"])
 if 'monthly_df' not in st.session_state: 
     st.session_state.monthly_df = pd.DataFrame(index=["수익($)", "수익(₩)"])
 if 'loan_df' not in st.session_state: 
     st.session_state.loan_df = pd.DataFrame([
-        {"대출처": "KB라이프", "대출금액": 50000000.0, "상환금액": 0.0},
-        {"대출처": "하나생명", "대출금액": 90000000.0, "상환금액": 0.0},
-        {"대출처": "마이너스", "대출금액": 100000000.0, "상환금액": 0.0}
+        {"대출처": "KB라이프", "대출금액": 50000000.0, "상환금액": 0.0, "비고": ""},
+        {"대출처": "하나생명", "대출금액": 90000000.0, "상환금액": 0.0, "비고": ""},
+        {"대출처": "마이너스", "대출금액": 100000000.0, "상환금액": 0.0, "비고": ""}
     ])
 if 'summary_data' not in st.session_state: 
     st.session_state.summary_data = {"투입": "₩40,000,000", "잔액": "₩18,012,969", "수익": "-₩21,987,031", "본전": "$14,410.42"}
@@ -72,18 +71,4 @@ def goal_box(col, label, def_p, def_d):
 
 goal_box(c2, "1단계", "$50,000", "2026.03")
 goal_box(c3, "2단계", "$200,000", "2026.05")
-goal_box(c4, "3단계", "$2,000,000", "2026.07")
-goal_box(c5, "4단계", "$10,000,000", "2026.12")
-
-st.divider()
-
-# 5. 탭 구성
-tab1, tab2, tab3 = st.tabs(["📊 자산 통계", "📝 실시간 매매일지", "💸 대출 & 상환"])
-
-with tab2:
-    st.subheader("📉 선물 매매 기록")
-    up_file = st.file_uploader("파일 업로드 (CSV)", type=["csv"], label_visibility="collapsed")
-    
-    if up_file:
-        try:
-            raw = pd.read_csv(io.
+goal_box(c4, "3단계
