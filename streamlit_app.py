@@ -25,7 +25,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 환율 및 유틸리티 함수
+# 2. 유틸리티 함수
 @st.cache_data(ttl=14400)
 def get_exchange_rate():
     if not YF_AVAILABLE: return 1442.50, "기본값"
@@ -43,15 +43,15 @@ def parse_money(money_str):
         return float(clean) if clean else 0.0
     except: return 0.0
 
-# 3. 데이터 세션 상태 초기화 (직접 입력을 위해 구조 유지)
-if 'main_df' not in st.session_state:
-    st.session_state.main_df = pd.DataFrame(columns=["날짜", "종목명", "포지션", "매수가", "매도가", "수량", "수익", "비고"])
-if 'monthly_df' not in st.session_state:
-    st.session_state.monthly_df = pd.DataFrame()
-if 'loan_df' not in st.session_state:
+# 3. 데이터 세션 상태 초기화 (영구 저장 전까지 상태 유지)
+if 'main_df' not in st.session_state: 
+    st.session_state.main_df = pd.DataFrame(columns=["날짜", "종목명", "포지션", "매수가", "매도가", "수량", "수수료", "비고"])
+if 'monthly_df' not in st.session_state: 
+    st.session_state.monthly_df = pd.DataFrame(index=["수익($)", "수익(₩)"])
+if 'loan_df' not in st.session_state: 
     st.session_state.loan_df = pd.DataFrame(columns=["대출처", "대출금액", "상환금액", "비고"])
-if 'summary_data' not in st.session_state:
-    st.session_state.summary_data = {}
+if 'summary_data' not in st.session_state: 
+    st.session_state.summary_data = {"투입_KRW": "₩40,000,000", "잔액_KRW": "₩18,012,969", "수익_KRW": "-₩21,987,031", "본전_USD": "$14,410.42"}
 
 # 4. 상단 레이아웃: 로드맵
 st.title("🚀 팍스2000: 130억 로드맵 관리 시스템")
@@ -71,7 +71,6 @@ def goal_box(col, label, def_p, def_d):
         st.markdown(f"<p class='krw-label'>≈ ₩{krw:,.0f}</p>", unsafe_allow_html=True)
         st.text_input(f"{label} 날짜", value=def_d, key=f"d_{label}")
 
-# 오빠의 5단계 목표 자동 세팅
 goal_box(c2, "1단계", "$50,000", "2026.03")
 goal_box(c3, "2단계", "$200,000", "2026.05")
 goal_box(c4, "3단계", "$2,000,000", "2026.07")
@@ -84,45 +83,8 @@ tab1, tab2, tab3 = st.tabs(["📊 자산 통계", "📝 실시간 매매일지",
 
 with tab2:
     st.subheader("📉 선물 매매 기록")
-    uploaded_file = st.file_uploader("기존 엑셀 로드 (필요시)", type=["csv"], label_visibility="collapsed")
+    uploaded_file = st.file_uploader("엑셀(CSV) 업로드로 데이터 채우기", type=["csv"])
     
     if uploaded_file:
         try:
-            raw = pd.read_csv(io.StringIO(uploaded_file.getvalue().decode('utf-8-sig')), header=None)
-            # 매매일지 파싱 로직
-            for i in range(len(raw)):
-                if "종목명" in str(raw.iloc[i].values):
-                    df = raw.iloc[i:].copy()
-                    df.columns = df.iloc[0]
-                    df = df[1:].reset_index(drop=True)
-                    cols_to_drop = [c for c in df.columns if any(x in str(c).lower() for x in ['no', '비고2', 'unnamed'])]
-                    st.session_state.main_df = df.drop(columns=cols_to_drop, errors='ignore').dropna(how='all')
-                    break
-            st.success("데이터 로드 완료!")
-        except Exception as e: st.error(f"로드 에러: {e}")
-
-    # num_rows="dynamic"으로 줄 추가 가능하게 설정
-    edited_main = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, height=500)
-    if st.button("💾 매매일지 저장"):
-        st.session_state.main_df = edited_main
-        st.success("매매 기록이 저장되었어!")
-
-with tab1:
-    ca, cb, cc, cd = st.columns(4)
-    sum_d = st.session_state.summary_data
-    
-    def asset_metric(col, label, usd_str, krw_str):
-        with col:
-            st.caption(label)
-            st.subheader(usd_str if usd_str else "$0.00")
-            st.markdown(f"<p class='krw-label'>{krw_str if krw_str else '₩0'}</p>", unsafe_allow_html=True)
-
-    invest_krw = sum_d.get("invest_krw", "₩40,000,000")
-    balance_krw = sum_d.get("balance_krw", "₩18,012,969")
-    profit_krw = sum_d.get("profit_krw", "-₩21,987,031")
-    breakeven_usd = sum_d.get("breakeven_usd", "$14,410.42")
-
-    asset_metric(ca, "총 투입금", f"${parse_money(invest_krw)/ex_rate:,.2f}", invest_krw)
-    asset_metric(cb, "현재 잔액", f"${parse_money(balance_krw)/ex_rate:,.2f}", balance_krw)
-    asset_metric(cc, "누적 수익", f"${parse_money(profit_krw)/ex_rate:,.2f}", profit_krw)
-    asset_metric(cd, "본전 수익목표", breakeven_usd, f"₩{parse_money(breakeven_usd)*ex_rate:,.0f}")
+            raw = pd.read_csv(io.StringIO(uploaded_file.getvalue().decode('utf
