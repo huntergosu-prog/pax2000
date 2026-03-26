@@ -33,13 +33,14 @@ def get_exchange_rate():
     except: return 1442.50, "연결에러"
 
 def parse_money(money_str):
-    if pd.isna(money_str) or str(money_str).strip() == "": return 0.0
+    if pd.isna(money_str) or str(money_str).strip() == "" or str(money_str).lower() == "nan": return 0.0
     try:
+        # 숫자, 소수점, 마이너스만 남기기
         clean = re.sub(r'[^\d.-]', '', str(money_str))
         return float(clean) if clean else 0.0
     except: return 0.0
 
-# 3. 데이터 세션 초기화
+# 3. 데이터 세션 상태 초기화 (에러 방지 핵심)
 if 'main_df' not in st.session_state: 
     st.session_state.main_df = pd.DataFrame(columns=["날짜", "종목명", "포지션", "매수가", "매도가", "수익", "비고"])
 if 'monthly_df' not in st.session_state: 
@@ -65,7 +66,7 @@ with c1:
 def goal_box(col, label, def_p, def_d):
     with col:
         p_val = st.text_input(f"{label} 목표($)", value=def_p)
-        krw = parse_money(p_val) * cur_ex
+        krw = parse_money(p_val) * (cur_ex if cur_ex else 1442.5)
         st.markdown(f"<p class='krw-label'>≈ ₩{krw:,.0f}</p>", unsafe_allow_html=True)
         st.text_input(f"{label} 날짜", value=def_d, key=f"d_{label}")
 
@@ -85,23 +86,4 @@ with tab2:
     
     if up_file:
         try:
-            raw = pd.read_csv(io.StringIO(up_file.getvalue().decode('utf-8-sig')), header=None).fillna("")
-            # 지능형 검색 파싱
-            for r in range(len(raw)):
-                row_str = " ".join(raw.iloc[r].astype(str))
-                if "현 잔액" in row_str:
-                    row_list = raw.iloc[r].tolist()
-                    for c, val in enumerate(row_list):
-                        if "현 잔액" in str(val): st.session_state.summary_data["잔액"] = str(raw.iloc[r+1, c])
-                        if "본전" in str(val) and "$" in str(val): st.session_state.summary_data["본전"] = str(raw.iloc[r+1, c])
-                        if "수익" in str(val) and "누적" in str(val): st.session_state.summary_data["수익"] = str(raw.iloc[r+1, c])
-                        if "총 투입금" in str(val): st.session_state.summary_data["투입"] = str(raw.iloc[r+1, c])
-                
-                if "1월" in row_str:
-                    m_idx = next(i for i, v in enumerate(raw.iloc[r].tolist()) if "1월" in str(v))
-                    st.session_state.monthly_df = pd.DataFrame(
-                        [raw.iloc[r+1, m_idx:m_idx+12].tolist(), raw.iloc[r+2, m_idx:m_idx+12].tolist()],
-                        columns=[f"{i}월" for i in range(1, 13)], index=["수익($)", "수익(₩)"]
-                    )
-
-                if "종목명" in
+            raw = pd.read_csv(io.
