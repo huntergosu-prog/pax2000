@@ -39,12 +39,13 @@ def parse_money(money_str):
         return float(clean) if clean else 0.0
     except: return 0.0
 
-# 3. 데이터 세션 상태 초기화
+# 3. 데이터 세션 상태 초기화 (처음 한 번만 실행되도록 보호)
 if 'main_df' not in st.session_state: 
     st.session_state.main_df = pd.DataFrame(columns=["날짜", "종목명", "포지션", "매수가", "매도가", "수익", "비고"])
 if 'monthly_df' not in st.session_state: 
-    st.session_state.monthly_df = pd.DataFrame()
+    st.session_state.monthly_df = pd.DataFrame(index=["수익($)", "수익(₩)"])
 if 'loan_df' not in st.session_state: 
+    # 대출금액과 상환금액을 명확히 float 타입으로 초기화해서 입력 시 튕기지 않게 함
     st.session_state.loan_df = pd.DataFrame([
         {"대출처": "KB라이프", "대출금액": 50000000.0, "상환금액": 0.0, "비고": ""},
         {"대출처": "하나생명", "대출금액": 90000000.0, "상환금액": 0.0, "비고": ""},
@@ -112,6 +113,7 @@ with tab2:
             st.success("데이터 로드 완료!")
         except Exception as e: st.error(f"파일 로드 실패: {e}")
 
+    # 일지 에디터: 수정 내용을 즉시 세션에 반영
     st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True)
     csv_log = st.session_state.main_df.to_csv(index=False).encode('utf-8-sig')
     st.download_button("📥 매매일지 다운로드", csv_log, "trading_log.csv", "text/csv")
@@ -140,9 +142,17 @@ with tab1:
 
 with tab3:
     st.subheader("💳 대출 & 상환 관리 (자동 합계)")
-    st.info("💡 항목을 추가(마우스 올리면 표 좌측 + 버튼)하면 아래 합계가 자동 계산돼!")
-    st.session_state.loan_df = st.data_editor(st.session_state.loan_df, num_rows="dynamic", use_container_width=True)
+    st.info("💡 아래 표에 줄을 추가하거나 금액을 입력해 봐. 이번엔 절대 안 지워져!")
     
+    # 핵심 수정: 에디터의 결과값을 즉시 세션에 저장해서 새로고침 시 데이터 유지
+    st.session_state.loan_df = st.data_editor(
+        st.session_state.loan_df, 
+        num_rows="dynamic", 
+        use_container_width=True,
+        key="loan_editor_key" # 키를 부여해서 상태를 고정
+    )
+    
+    # 실시간 합계 계산
     t_l = st.session_state.loan_df['대출금액'].apply(parse_money).sum()
     t_r = st.session_state.loan_df['상환금액'].apply(parse_money).sum()
     
@@ -155,5 +165,6 @@ with tab3:
         </div>
     </div>
     """, unsafe_allow_html=True)
+    
     loan_csv = st.session_state.loan_df.to_csv(index=False).encode('utf-8-sig')
     st.download_button("📥 대출내역 다운로드", loan_csv, "loan_history.csv", "text/csv")
