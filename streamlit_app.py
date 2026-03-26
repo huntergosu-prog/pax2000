@@ -43,7 +43,7 @@ def parse_money(money_str):
 if 'main_df' not in st.session_state: 
     st.session_state.main_df = pd.DataFrame(columns=["날짜", "종목명", "포지션", "매수가", "매도가", "수익", "비고"])
 if 'monthly_df' not in st.session_state: 
-    st.session_state.monthly_df = pd.DataFrame(index=["수익($)", "수익(₩)"])
+    st.session_state.monthly_df = pd.DataFrame()
 if 'loan_df' not in st.session_state: 
     st.session_state.loan_df = pd.DataFrame([
         {"대출처": "KB라이프", "대출금액": 50000000.0, "상환금액": 0.0, "비고": ""},
@@ -86,12 +86,74 @@ with tab2:
     if up_file:
         try:
             raw = pd.read_csv(io.StringIO(up_file.getvalue().decode('utf-8-sig')), header=None).fillna("")
-            # 지능형 검색 파싱
             for r in range(len(raw)):
                 for c in range(raw.shape[1]):
                     cell = str(raw.iloc[r, c]).strip()
-                    # 요약 정보 찾기
                     if "현 잔액" in cell and r + 1 < len(raw): st.session_state.summary_data["잔액"] = str(raw.iloc[r+1, c])
                     if "본전" in cell and "$" in cell and r + 1 < len(raw): st.session_state.summary_data["본전"] = str(raw.iloc[r+1, c])
                     if "수익" in cell and "누적" in cell and r + 1 < len(raw): st.session_state.summary_data["수익"] = str(raw.iloc[r+1, c])
-                    if "총 투
+                    if "총 투입금" in cell and r + 1 < len(raw): st.session_state.summary_data["투입"] = str(raw.iloc[r+1, c])
+                    
+                    if "1월" in cell and r + 2 < len(raw):
+                        m_row_1 = [x for x in raw.iloc[r+1, c:].tolist() if str(x).strip() != ""]
+                        m_row_2 = [x for x in raw.iloc[r+2, c:].tolist() if str(x).strip() != ""]
+                        valid_len = min(len(m_row_1), len(m_row_2), 12)
+                        m_header = [f"{i}월" for i in range(1, valid_len + 1)]
+                        st.session_state.monthly_df = pd.DataFrame(
+                            [m_row_1[:valid_len], m_row_2[:valid_len]], 
+                            columns=m_header, index=["수익($)", "수익(₩)"]
+                        )
+                    
+                    if cell == "종목명":
+                        df = raw.iloc[r:].copy()
+                        df.columns = df.iloc[0]; df = df[1:].reset_index(drop=True)
+                        cols_to_drop = [x for x in df.columns if any(y in str(x).lower() for y in ['no', '비고2', 'unnamed'])]
+                        st.session_state.main_df = df.drop(columns=cols_to_drop, errors='ignore').dropna(how='all')
+            st.success("데이터 로드 완료!")
+        except Exception as e: st.error(f"파일 로드 실패: {e}")
+
+    st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True)
+    csv_log = st.session_state.main_df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button("📥 매매일지 다운로드", csv_log, "trading_log.csv", "text/csv")
+
+with tab1:
+    ca, cb, cc, cd = st.columns(4)
+    s = st.session_state.summary_data
+    safe_ex = cur_ex if cur_ex and cur_ex > 0 else 1442.5
+    
+    def m(col, l, val, krw):
+        with col:
+            st.caption(l)
+            num = parse_money(val)
+            usd_val = num if "본전" in l else num / safe_ex
+            st.subheader(f"${usd_val:,.2f}")
+            st.markdown(f"<p class='krw-label'>{krw}</p>", unsafe_allow_html=True)
+    
+    m(ca, "총 투입금", s.get('투입', '0'), s.get('투입', '₩0'))
+    m(cb, "현재 잔액", s.get('잔액', '0'), s.get('잔액', '₩0'))
+    m(cc, "누적 수익", s.get('수익', '0'), s.get('수익', '₩0'))
+    m(cd, "본전 수익목표", s.get('본전', '0'), f"₩{parse_money(s.get('본전', '0'))*safe_ex:,.0f}")
+    
+    st.write("---")
+    st.subheader("🗓️ 월별 수익 현황")
+    if not st.session_state.monthly_df.empty: st.table(st.session_state.monthly_df)
+
+with tab3:
+    st.subheader("💳 대출 & 상환 관리 (자동 합계)")
+    st.info("💡 항목을 추가(마우스 올리면 표 좌측 + 버튼)하면 아래 합계가 자동 계산돼!")
+    st.session_state.loan_df = st.data_editor(st.session_state.loan_df, num_rows="dynamic", use_container_width=True)
+    
+    t_l = st.session_state.loan_df['대출금액'].apply(parse_money).sum()
+    t_r = st.session_state.loan_df['상환금액'].apply(parse_money).sum()
+    
+    st.markdown(f"""
+    <div class="total-row">
+        <div style="display: flex; justify-content: space-between;">
+            <span>💰 총 대출액: ₩{t_l:,.0f}</span>
+            <span style="color: blue;">✅ 총 상환액: ₩{t_r:,.0f}</span>
+            <span style="color: #ff4b4b;">🚨 남은 잔액: ₩{t_l - t_r:,.0f}</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    loan_csv = st.session_state.loan_df.to_csv(index=False).encode('utf-8-sig')
+    st.download_button("📥 대출내역 다운로드", loan_csv, "loan_history.csv", "text/csv")
