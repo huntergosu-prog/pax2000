@@ -25,7 +25,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 환율 함수
+# 2. 실시간 환율 (4시간 캐시)
 @st.cache_data(ttl=14400)
 def get_exchange_rate():
     if not YF_AVAILABLE: return 1442.50, "라이브러리 미설치"
@@ -86,34 +86,41 @@ with tab2:
             lines = content.splitlines()
             raw_df = pd.read_csv(io.StringIO(content), header=None)
 
-            # A. 매매일지 파싱 (헤더 기반)
+            # A. 매매일지 파싱 (헤더 기반으로 튼튼하게 찾기)
             header_idx = -1
             for i, line in enumerate(lines):
                 if "종목명" in line and "매수가" in line:
                     header_idx = i
                     break
+            
             if header_idx != -1:
                 df = pd.read_csv(io.StringIO("\n".join(lines[header_idx:])))
+                # 'None' 텍스트나 불필요한 열 자동 제거
                 cols_to_drop = [c for c in df.columns if any(x in str(c).lower() for x in ['no', '비고2', 'unnamed'])]
-                st.session_state.main_df = df.drop(columns=cols_to_drop, errors='ignore').dropna(how='all')
+                st.session_state.main_df = df.drop(columns=cols_to_drop, errors='ignore').replace('None', None).dropna(how='all')
             
-            # B. 월별 통계 파싱 (캡처본 이슈 해결)
-            m_data = raw_df.iloc[1:3, 14:26].copy()
-            m_data.columns = [f"{i}월" for i in range(1, 13)]
-            m_data.index = ["수익($)", "수익(₩)"]
-            st.session_state.monthly_df = m_data
+            # B. 월별 통계 파싱 (데이터 개수에 맞춰 유연하게)
+            try:
+                m_data = raw_df.iloc[1:3, 14:].dropna(axis=1, how='all').copy()
+                if not m_data.empty:
+                    col_names = [f"{i+1}월" for i in range(m_data.shape[1])]
+                    m_data.columns = col_names[:m_data.shape[1]]
+                    m_data.index = ["수익($)", "수익(₩)"]
+                    st.session_state.monthly_df = m_data
+            except: pass
             
             # C. 대출 정보 파싱
-            l_data = raw_df.iloc[3:5, 6:10].copy()
-            l_data.columns = ["항목1", "항목2", "항목3", "합계"] # 엑셀 구조에 맞춤
-            st.session_state.loan_df = l_data
+            try:
+                l_data = raw_df.iloc[3:5, 6:10].dropna(axis=1, how='all').copy()
+                st.session_state.loan_df = l_data
+            except: pass
             
             st.success("데이터를 다시 정렬해서 불러왔어!")
         except Exception as e:
             st.error(f"로드 에러: {e}")
 
     if not st.session_state.main_df.empty:
-        st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, height=500)
+        st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, height=600)
 
 with tab1:
     ca, cb, cc, cd = st.columns(4)
