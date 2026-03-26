@@ -14,20 +14,19 @@ except ImportError:
 # 1. 페이지 설정
 st.set_page_config(page_title="팍스2000 통합 대시보드", layout="wide")
 
-# 2. 디자인 CSS (콤팩트 테마)
+# 2. 디자인 CSS
 st.markdown("""
     <style>
     html, body, [class*="css"] { font-size: 13px !important; }
     div[data-testid="stMetricValue"] { font-size: 16px !important; }
     h1 { font-size: 20px !important; margin-bottom: 5px; }
-    h3 { font-size: 15px !important; margin-top: 10px; }
     .krw-label { color: #ff4b4b; font-size: 12px; font-weight: bold; margin-top: -5px; margin-bottom: 5px; }
     .update-time { font-size: 10px; color: #888; margin-top: 5px; }
     div[data-testid="stVerticalBlock"] > div { gap: 0rem !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 환율 함수 (4시간 캐시)
+# 3. 환율 함수
 @st.cache_data(ttl=14400)
 def get_exchange_rate():
     if not YF_AVAILABLE: return 1442.50, "라이브러리 미설치"
@@ -41,10 +40,12 @@ def get_exchange_rate():
 
 def parse_money(money_str):
     if pd.isna(money_str): return 0.0
-    try: return float(re.sub(r'[^\d.-]', '', str(money_str)))
+    try:
+        clean_str = re.sub(r'[^\d.-]', '', str(money_str))
+        return float(clean_str) if clean_str else 0.0
     except: return 0.0
 
-# 4. 세션 상태 초기화
+# 4. 데이터 세션 상태 초기화
 for key in ['main_df', 'monthly_df', 'loan_df']:
     if key not in st.session_state: st.session_state[key] = pd.DataFrame()
 
@@ -76,58 +77,65 @@ st.divider()
 # 6. 탭 구성
 tab1, tab2, tab3 = st.tabs(["📊 자산 통계", "📝 실시간 매매일지", "💸 출금 & 대출"])
 
+with tab2:
+    st.subheader("📉 선물 매매 기록 (CSV 업로드)")
+    uploaded_file = st.file_uploader("엑셀 파일을 여기에 올려줘", type=["csv"], label_visibility="collapsed")
+    
+    if uploaded_file:
+        try:
+            # 원본 데이터 읽기
+            content = uploaded_file.getvalue().decode('utf-8-sig')
+            lines = content.splitlines()
+            raw_df = pd.read_csv(io.StringIO(content), header=None)
+
+            # A. 매매일지 파싱 (헤더 찾기 로직 강화)
+            header_idx = -1
+            for i, line in enumerate(lines):
+                if "종목명" in line and "매수가" in line:
+                    header_idx = i
+                    break
+            
+            if header_idx != -1:
+                df = pd.read_csv(io.StringIO("\n".join(lines[header_idx:])))
+                # 불필요한 열 삭제
+                cols_to_drop = [c for c in df.columns if any(x in str(c).lower() for x in ['no', '비고2', 'unnamed'])]
+                st.session_state.main_df = df.drop(columns=cols_to_drop, errors='ignore').dropna(how='all')
+            
+            # B. 월별 통계 및 대출 정보 파싱 (안전한 슬라이싱)
+            try:
+                # 엑셀 상단 영역에서 데이터 추출
+                st.session_state.monthly_df = raw_df.iloc[1:3, 14:26]
+                st.session_state.loan_df = raw_df.iloc[3:5, 6:10]
+            except: pass
+            
+            st.success("데이터를 성공적으로 불러왔어!")
+        except Exception as e:
+            st.error(f"파일 로드 중 에러: {e}")
+
+    if not st.session_state.main_df.empty:
+        edited = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, height=500)
+        if st.button("💾 데이터 저장"):
+            st.session_state.main_df = edited
+            st.success("업데이트 완료!")
+
 with tab1:
     ca, cb, cc, cd = st.columns(4)
     def asset_metric(col, label, usd, krw):
         with col:
             st.caption(label); st.subheader(f"${usd}"); st.markdown(f"<p class='krw-label'>₩{krw}</p>", unsafe_allow_html=True)
+    
+    # 요약 지표 (기본값 설정)
     asset_metric(ca, "총 투입금", "27,729.64", "40,000,000")
     asset_metric(cb, "현재 잔액", "12,487.33", "18,012,969")
     asset_metric(cc, "누적 수익", "-15,242.31", "-21,987,031")
     asset_metric(cd, "본전 수익목표", "14,410.42", "20,787,031")
+    
     st.write("---")
     st.subheader("🗓️ 월별 수익 요약")
-    if not st.session_state.monthly_df.empty: st.table(st.session_state.monthly_df)
-
-with tab2:
-    # --- 파일 업로드를 일지 상단에 배치 (오빠 요청사항) ---
-    st.subheader("📉 선물 매매 기록 (CSV 업로드)")
-    uploaded_file = st.file_uploader("엑셀(CSV) 파일을 여기에 드래그하거나 클릭하세요", type=["csv"])
-    
-    if uploaded_file:
-        try:
-            raw_data = pd.read_csv(uploaded_file, header=None, encoding='utf-8-sig')
-            # 월별 수익 파싱 (2~3행)
-            try:
-                m_header = [f"{i+1}월" for i in range(12)]
-                m_usd = raw_data.iloc[1, 14:26].tolist()
-                m_krw = raw_data.iloc[2, 14:26].tolist()
-                st.session_state.monthly_df = pd.DataFrame({"월": m_header, "수익($)": m_usd, "수익(₩)": m_krw}).set_index("월").T
-            except: pass
-            # 대출 정보 파싱 (4~5행)
-            try:
-                l_names = raw_data.iloc[3, 6:10].tolist()
-                l_vals = raw_data.iloc[4, 6:10].tolist()
-                st.session_state.loan_df = pd.DataFrame({"대출처": l_names, "금액": l_vals})
-            except: pass
-            # 매매일지 파싱 ('종목명' 줄 찾기)
-            for i, row in raw_data.iterrows():
-                if "종목명" in str(row.values) and "매수가" in str(row.values):
-                    df = pd.read_csv(io.StringIO("\n".join(raw_data.iloc[i:].astype(str).apply(lambda x: ",".join(x), axis=1))))
-                    df.columns = df.iloc[0]
-                    df = df[1:].reset_index(drop=True)
-                    cols_to_drop = [c for c in df.columns if any(x in str(c).lower() for x in ['no', '비고2', 'unnamed'])]
-                    st.session_state.main_df = df.drop(columns=cols_to_drop, errors='ignore').dropna(how='all')
-                    break
-            st.success("데이터 로드 완료!")
-        except Exception as e: st.error(f"에러: {e}")
-
-    if not st.session_state.main_df.empty:
-        edited = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, height=500)
-        if st.button("💾 변경사항 저장"):
-            st.session_state.main_df = edited
-            st.success("화면 데이터 업데이트 완료!")
+    if not st.session_state.monthly_df.empty:
+        st.dataframe(st.session_state.monthly_df, use_container_width=True)
 
 with tab3:
     st.subheader("💳 대출 및 출금 현황")
-    if not st.session_state.loan_df.empty: st.table(st.session_state.loan_df)
+    if not st.session_state.loan_df.empty:
+        st.dataframe(st.session_state.loan_df, use_container_width=True)
