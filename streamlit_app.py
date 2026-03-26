@@ -21,11 +21,10 @@ st.markdown("""
     h1 { font-size: 20px !important; margin-bottom: 5px; }
     .krw-label { color: #ff4b4b; font-size: 12px; font-weight: bold; margin-top: -5px; margin-bottom: 5px; }
     .update-time { font-size: 10px; color: #888; margin-top: 5px; }
-    div[data-testid="stVerticalBlock"] > div { gap: 0rem !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 실시간 환율 함수 (4시간 캐시)
+# 2. 환율 함수 (4시간 캐시)
 @st.cache_data(ttl=14400)
 def get_exchange_rate():
     if not YF_AVAILABLE: return 1442.50, "라이브러리 미설치"
@@ -68,14 +67,14 @@ goal_box(c5, "4단계", "$10,000,000", "2026.12")
 
 st.divider()
 
-# 4. 자산 요약
+# 자산 요약 (고정 데이터)
+ca, cb, cc, cd = st.columns(4)
 def asset_metric(col, label, usd_val):
     with col:
         st.caption(label)
         st.subheader(f"${usd_val:,.2f}")
         st.markdown(f"<p class='krw-label'>₩{usd_val * ex_rate:,.0f}</p>", unsafe_allow_html=True)
 
-ca, cb, cc, cd = st.columns(4)
 asset_metric(ca, "총 투입금", 40000000 / ex_rate)
 asset_metric(cb, "현재 잔액", 18012969 / ex_rate)
 asset_metric(cc, "누적 수익", -21987031 / ex_rate)
@@ -83,11 +82,11 @@ asset_metric(cd, "본전 수익목표", 14410.42)
 
 st.divider()
 
-# 5. 탭 및 매매일지
+# 4. 탭 구성
 tab1, tab2, tab3 = st.tabs(["📊 자산 통계", "📝 실시간 매매일지", "💸 출금 & 대출"])
 
 with tab2:
-    st.subheader("📉 선물 매매 기록 (입출금 포함)")
+    st.subheader("📉 선물 매매 기록")
     uploaded_file = st.file_uploader("CSV 업로드", type=["csv"], label_visibility="collapsed")
     
     if 'main_df' not in st.session_state: st.session_state.main_df = pd.DataFrame()
@@ -96,24 +95,30 @@ with tab2:
         try:
             content = uploaded_file.getvalue().decode('utf-8-sig')
             lines = content.splitlines()
-            # 헤더 줄 찾기 (종목명, 날짜, 구분 등이 포함된 줄)
-            target_idx = 0
+            
+            # 진짜 헤더 찾기: '종목명'이 포함된 줄을 찾음 (상단 요약과 겹치지 않게)
+            header_idx = -1
             for i, line in enumerate(lines):
-                if any(keyword in line for keyword in ["종목명", "날짜", "구분", "Coin", "Date"]):
-                    target_idx = i
+                # '종목명'이 있고, 그 줄에 '매수가'나 '매도가'가 같이 있으면 진짜 일지 헤더임
+                if "종목명" in line and ("매수가" in line or "매도가" in line):
+                    header_idx = i
                     break
             
-            df = pd.read_csv(io.StringIO("\n".join(lines[target_idx:])))
-            # 'NO'와 '비고2' 컬럼 삭제 (대소문자 무관하게 처리)
-            cols_to_drop = [c for c in df.columns if any(x in c.lower() for x in ['no', '비고2'])]
-            df = df.drop(columns=cols_to_drop, errors='ignore')
-            
-            st.session_state.main_df = df.dropna(how='all')
-            st.success("데이터를 성공적으로 불러왔어!")
+            if header_idx != -1:
+                df = pd.read_csv(io.StringIO("\n".join(lines[header_idx:])))
+                # 불필요한 컬럼 삭제
+                cols_to_drop = [c for c in df.columns if any(x in c.lower() for x in ['no', '비고2', 'unnamed'])]
+                df = df.drop(columns=cols_to_drop, errors='ignore')
+                # 데이터가 없는 빈 행 삭제
+                st.session_state.main_df = df.dropna(how='all')
+                st.success("일지만 쏙 골라왔어!")
+            else:
+                st.error("매매일지 양식을 찾을 수 없어. '종목명' 헤더가 있는지 확인해 줘!")
         except Exception as e:
-            st.error(f"파일 로드 중 에러가 발생했어: {e}")
+            st.error(f"에러 발생: {e}")
 
     if not st.session_state.main_df.empty:
+        # 탭(Tab) 구분자 데이터를 바로 붙여넣기 좋게 에디터 설정
         edited_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, height=550)
         if st.button("💾 데이터 저장"):
             st.session_state.main_df = edited_df
