@@ -11,7 +11,7 @@ except ImportError:
     YF_AVAILABLE = False
 
 # 1. 페이지 설정 및 디자인
-st.set_page_config(page_title="통합 대시보드", layout="wide")
+st.set_page_config(page_title="팍스2000 통합 대시보드", layout="wide")
 
 # 콤팩트한 화면을 위한 CSS
 st.markdown("""
@@ -42,7 +42,7 @@ def parse_money(money_str):
     except: return 0.0
 
 # 2. 최상단: 실시간 환율 및 로드맵
-st.title("🚀 130억 로드맵 관리 시스템")
+st.title("🚀 팍스2000: 130억 로드맵 관리 시스템")
 
 auto_rate = get_realtime_exchange_rate()
 c1, c2, c3, c4, c5 = st.columns(5)
@@ -117,4 +117,7 @@ with tab2:
 with tab3:
     st.subheader("💳 대출 및 출금 현황")
     st.table(pd.DataFrame({
-        "대출처": ["KB라이프
+        "대출처": ["KB라이프", "하나생명", "마이너스통장"],
+        "금액": ["₩10,000,000", "₩5,000,000", "₩20,000,000"],
+        "비고": ["보험약관대출", "신용대출", "생활비"]
+    }))
