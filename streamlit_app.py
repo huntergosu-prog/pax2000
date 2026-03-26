@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 1. 페이지 설정 및 디자인
 st.set_page_config(page_title="팍스2000 통합 대시보드", layout="wide")
@@ -17,7 +17,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 유틸리티 함수
+# 2. 유틸리티 함수 (한국 시간 적용)
 try:
     import yfinance as yf
     YF_AVAILABLE = True
@@ -26,13 +26,17 @@ except ImportError:
 
 @st.cache_data(ttl=14400)
 def get_exchange_rate():
-    if not YF_AVAILABLE: return 1442.50, "기본값"
+    # 한국 시간(KST) 계산: UTC + 9시간
+    kst_now = datetime.utcnow() + timedelta(hours=9)
+    time_str = kst_now.strftime("%m/%d %H:%M")
+    
+    if not YF_AVAILABLE: return 1442.50, time_str
     try:
         ticker = yf.Ticker("USDKRW=X")
         data = ticker.history(period="1d")
         rate = round(data['Close'].iloc[-1], 2)
-        return rate, datetime.now().strftime("%m/%d %H:%M")
-    except: return 1442.50, "연결에러"
+        return rate, time_str
+    except: return 1442.50, time_str
 
 def parse_money(money_str):
     if pd.isna(money_str) or str(money_str).strip() == "" or str(money_str).lower() == "nan": return 0.0
@@ -48,9 +52,9 @@ if 'monthly_data' not in st.session_state:
     st.session_state.monthly_data = {"2026": pd.DataFrame(0.0, index=["수익($)", "수익(₩)"], columns=[f"{i}월" for i in range(1, 13)])}
 if 'loan_df' not in st.session_state: 
     st.session_state.loan_df = pd.DataFrame([
-        {"대출처": "KB라이프", "대출금액": 50000000, "상환금액": 0, "비고": ""},
-        {"대출처": "하나생명", "대출금액": 90000000, "상환금액": 0, "비고": ""},
-        {"대출처": "마이너스", "대출금액": 100000000, "상환금액": 0, "비고": ""}
+        {"대출처": "KB라이프", "대출금액": 50000000.0, "상환금액": 0.0, "비고": ""},
+        {"대출처": "하나생명", "대출금액": 90000000.0, "상환금액": 0.0, "비고": ""},
+        {"대출처": "마이너스", "대출금액": 100000000.0, "상환금액": 0.0, "비고": ""}
     ])
 if 'summary_data' not in st.session_state: 
     st.session_state.summary_data = {"투입": "₩40,000,000", "잔액": "₩18,012,969", "수익": "-₩21,987,031", "본전": "$14,410.42"}
@@ -63,7 +67,7 @@ c1, c2, c3, c4, c5 = st.columns(5)
 with c1:
     if st.button("🔄 환율 갱신"): st.cache_data.clear(); st.rerun()
     cur_ex = st.number_input("현재 환율", value=ex_rate, step=0.1)
-    st.markdown(f"<p class='update-time'>최종 갱신: {update_time}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p class='update-time'>최종 갱신(KST): {update_time}</p>", unsafe_allow_html=True)
 
 def goal_box(col, label, def_p, def_d):
     with col:
@@ -105,12 +109,10 @@ with tab2:
                 if "종목명" in row_str:
                     df = raw.iloc[r:].copy()
                     df.columns = df.iloc[0]; df = df[1:].reset_index(drop=True)
-                    cols_to_drop = [x for x in df.columns if any(y in str(x).lower() for y in ['no', '비고2', 'unnamed'])]
-                    st.session_state.main_df = df.drop(columns=cols_to_drop, errors='ignore').dropna(how='all')
+                    st.session_state.main_df = df.loc[:, ~df.columns.duplicated()].dropna(how='all')
             st.success("데이터 로드 완료!")
         except Exception as e: st.error(f"실패: {e}")
-    st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key="main_editor_v17")
-    st.download_button("📥 매매일지 다운로드", st.session_state.main_df.to_csv(index=False).encode('utf-8-sig'), "trading_log.csv", "text/csv")
+    st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key="main_editor_v19")
 
 with tab1:
     ca, cb, cc, cd = st.columns(4)
@@ -124,31 +126,33 @@ with tab1:
     m(cc, "누적 수익", s.get('수익', '0'), s.get('수익', '₩0')); m(cd, "본전 수익목표", s.get('본전', '0'), f"₩{parse_money(s.get('본전', '0'))*safe_ex:,.0f}")
     st.write("---")
     st.subheader("🗓️ 연도별 수익 현황")
-    y = st.selectbox("연도", sorted(st.session_state.monthly_data.keys(), reverse=True))
-    st.table(st.session_state.monthly_data[y].applymap(lambda x: f"{x:,.2f}"))
+    st.table(st.session_state.monthly_data["2026"].applymap(lambda x: f"{x:,.2f}"))
 
 with tab3:
-    st.subheader("💳 대출 & 상환 관리 (자동 합계)")
+    st.subheader("💳 대출 & 상환 관리")
+    st.info("💡 줄 추가(+) 후 내용을 쓰면 실시간 저장돼! 쉼표는 아래 합계에서 확인해 줘.")
     
-    # [핵심 수정: 3자리 쉼표 강제 고정 설정]
+    # [핵심] 줄 추가 시 데이터 보존을 위해 에디터 상태를 세션에 즉시 동기화
     edited_loan = st.data_editor(
         st.session_state.loan_df, 
         num_rows="dynamic", 
         use_container_width=True,
-        column_config={
-            "대출금액": st.column_config.NumberColumn("대출금액(₩)", format="#,###", min_value=0),
-            "상환금액": st.column_config.NumberColumn("상환금액(₩)", format="#,###", min_value=0)
-        },
-        key="loan_editor_v17"
+        key="loan_editor_v19"
     )
     
-    # 줄 추가 및 입력 즉시 세션 반영
     if not edited_loan.equals(st.session_state.loan_df):
         st.session_state.loan_df = edited_loan
         st.rerun()
 
-    tl = st.session_state.loan_df['대출금액'].apply(lambda x: parse_money(x)).sum()
-    tr = st.session_state.loan_df['상환금액'].apply(lambda x: parse_money(x)).sum()
+    tl = st.session_state.loan_df['대출금액'].apply(parse_money).sum()
+    tr = st.session_state.loan_df['상환금액'].apply(parse_money).sum()
     
-    st.markdown(f'<div class="total-row">💰 총 대출: ₩{tl:,.0f} | ✅ 총 상환: ₩{tr:,.0f} | 🚨 잔액: ₩{tl-tr:,.0f}</div>', unsafe_allow_html=True)
-    st.download_button("📥 대출내역 다운로드", st.session_state.loan_df.to_csv(index=False).encode('utf-8-sig'), "loans.csv", "text/csv")
+    st.markdown(f"""
+    <div class="total-row">
+        💰 총 대출액: ₩{tl:,.0f} &nbsp;&nbsp; | &nbsp;&nbsp; 
+        <span style="color: blue;">✅ 총 상환액: ₩{tr:,.0f}</span> &nbsp;&nbsp; | &nbsp;&nbsp; 
+        <span style="color: red;">🚨 남은 잔액: ₩{tl-tr:,.0f}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.download_button("📥 내역 다운로드", st.session_state.loan_df.to_csv(index=False).encode('utf-8-sig'), "loans.csv", "text/csv")
