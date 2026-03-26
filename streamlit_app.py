@@ -39,7 +39,7 @@ def parse_money(money_str):
         return float(clean) if clean else 0.0
     except: return 0.0
 
-# 3. 데이터 세션 상태 초기화 (에러 방지용 초기값)
+# 3. 데이터 세션 상태 초기화
 if 'main_df' not in st.session_state: 
     st.session_state.main_df = pd.DataFrame(columns=["날짜", "종목명", "포지션", "매수가", "매도가", "수익", "비고"])
 if 'monthly_df' not in st.session_state: 
@@ -71,4 +71,20 @@ def goal_box(col, label, def_p, def_d):
 
 goal_box(c2, "1단계", "$50,000", "2026.03")
 goal_box(c3, "2단계", "$200,000", "2026.05")
-goal_box(c4, "3단계
+goal_box(c4, "3단계", "$2,000,000", "2026.07")
+goal_box(c5, "4단계", "$10,000,000", "2026.12")
+
+st.divider()
+
+# 5. 탭 구성
+tab1, tab2, tab3 = st.tabs(["📊 자산 통계", "📝 실시간 매매일지", "💸 대출 & 상환"])
+
+with tab2:
+    st.subheader("📉 선물 매매 기록")
+    up_file = st.file_uploader("파일 업로드 (CSV)", type=["csv"], label_visibility="collapsed")
+    
+    if up_file:
+        try:
+            raw = pd.read_csv(io.StringIO(up_file.getvalue().decode('utf-8-sig')), header=None).fillna("")
+            # 전수 조사 로직 (에러 방지 핵심)
+            for r in range(len(raw)):
