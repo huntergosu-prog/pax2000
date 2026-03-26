@@ -12,7 +12,7 @@ st.markdown("""
     div[data-testid="stMetricValue"] { font-size: 16px !important; }
     h1 { font-size: 20px !important; margin-bottom: 5px; }
     .krw-label { color: #ff4b4b; font-size: 12px; font-weight: bold; margin-top: -5px; margin-bottom: 5px; }
-    .update-time { font-size: 11px; color: #666; margin-top: -10px; margin-bottom: 10px; }
+    .update-time { font-size: 11px; color: #666; margin-top: 5px; }
     .total-row { background-color: #f8f9fa; font-weight: bold; border-top: 2px solid #ff4b4b; padding: 15px; margin-top: 10px; border-radius: 8px; font-size: 14px; }
     </style>
     """, unsafe_allow_html=True)
@@ -42,13 +42,16 @@ if 'loan_df' not in st.session_state:
 if 'summary_data' not in st.session_state: 
     st.session_state.summary_data = {"투입": "₩40,000,000", "잔액": "₩18,012,969", "수익": "-₩21,987,031", "본전": "$14,410.42"}
 
-# 4. 상단 대시보드
+# 4. 상단 대시보드 (사이드바 삭제 -> 메인 배치)
 st.title("🚀 팍스2000: 130억 로드맵 통합 관리")
-cur_ex = st.sidebar.number_input("현재 환율", value=1442.5, step=0.1)
-st.sidebar.markdown(f"**최종 갱신(KST): {get_kst_time()}**")
 
-# 로드맵 목표가 섹션
-c1, c2, c3, c4 = st.columns(4)
+# 환율 및 목표가 섹션
+c1, c2, c3, c4, c5 = st.columns(5)
+with c1:
+    if st.button("🔄 환율 갱신"): st.cache_data.clear(); st.rerun()
+    cur_ex = st.number_input("현재 환율", value=1442.5, step=0.1)
+    st.markdown(f"<p class='update-time'>최종 갱신(KST): {get_kst_time()}</p>", unsafe_allow_html=True)
+
 def goal_box(col, label, def_p, def_d):
     with col:
         p_val = st.text_input(f"{label} 목표($)", value=def_p, key=f"p_{label}")
@@ -56,10 +59,10 @@ def goal_box(col, label, def_p, def_d):
         st.markdown(f"<p class='krw-label'>≈ ₩{krw:,.0f}</p>", unsafe_allow_html=True)
         st.text_input(f"{label} 날짜", value=def_d, key=f"d_{label}")
 
-goal_box(c1, "1단계", "$50,000", "2026.03")
-goal_box(c2, "2단계", "$200,000", "2026.05")
-goal_box(c3, "3단계", "$2,000,000", "2026.07")
-goal_box(c4, "4단계", "$10,000,000", "2026.12")
+goal_box(c2, "1단계", "$50,000", "2026.03")
+goal_box(c3, "2단계", "$200,000", "2026.05")
+goal_box(c4, "3단계", "$2,000,000", "2026.07")
+goal_box(c5, "4단계", "$10,000,000", "2026.12")
 
 st.divider()
 
@@ -90,9 +93,9 @@ with tab2:
                     df = raw.iloc[r:].copy()
                     df.columns = df.iloc[0]; df = df[1:].reset_index(drop=True)
                     st.session_state.main_df = df.loc[:, ~df.columns.duplicated()].dropna(how='all')
-            st.success("데이터 동기화 완료!")
+            st.success("데이터 로드 완료!")
         except Exception as e: st.error(f"실패: {e}")
-    st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key="main_editor_v20")
+    st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key="main_editor_v21")
 
 with tab1:
     ca, cb, cc, cd = st.columns(4)
@@ -109,24 +112,21 @@ with tab1:
 
 with tab3:
     st.subheader("💳 대출 & 상환 관리")
-    st.info("💡 탭(Tab)이나 엔터를 눌러도 데이터가 안전하게 저장돼! 쉼표는 자동 표시!")
+    st.info("💡 탭(Tab)이나 엔터를 누르면 실시간 저장! 쉼표는 아래 합계에서 확인해 줘.")
     
-    # [핵심 수정: 3자리 쉼표 및 탭 입력 보존]
-    # on_change 대신 에디터 자체의 데이터 상태를 세션에 즉시 반영
-    loan_editor_df = st.data_editor(
+    edited_loan = st.data_editor(
         st.session_state.loan_df, 
         num_rows="dynamic", 
         use_container_width=True,
         column_config={
-            "대출금액": st.column_config.NumberColumn("대출금액(₩)", format="%d", min_value=0),
-            "상환금액": st.column_config.NumberColumn("상환금액(₩)", format="%d", min_value=0)
+            "대출금액": st.column_config.NumberColumn("대출금액(₩)", format="%d"),
+            "상환금액": st.column_config.NumberColumn("상환금액(₩)", format="%d")
         },
-        key="loan_editor_v20"
+        key="loan_editor_v21"
     )
     
-    # 탭 이동 시에도 세션에 강제 업데이트
-    if not loan_editor_df.equals(st.session_state.loan_df):
-        st.session_state.loan_df = loan_editor_df
+    if not edited_loan.equals(st.session_state.loan_df):
+        st.session_state.loan_df = edited_loan
         st.rerun()
 
     tl = st.session_state.loan_df['대출금액'].apply(parse_money).sum()
@@ -139,5 +139,4 @@ with tab3:
         <span style="color: red;">🚨 남은 잔액: ₩{tl-tr:,.0f}</span>
     </div>
     """, unsafe_allow_html=True)
-    
     st.download_button("📥 내역 다운로드", st.session_state.loan_df.to_csv(index=False).encode('utf-8-sig'), "loans.csv", "text/csv")
