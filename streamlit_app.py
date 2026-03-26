@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
 import io
+import re
 
 # 1. 페이지 설정
 st.set_page_config(page_title="팍스2000 통합 대시보드", layout="wide")
 
-# 2. 콤팩트 CSS
+# 2. 콤팩트 CSS (글자 크기 축소 및 간격 조절)
 st.markdown("""
     <style>
     html, body, [class*="css"] { font-size: 13px !important; }
@@ -13,27 +14,37 @@ st.markdown("""
     h1 { font-size: 20px !important; margin-bottom: 5px; }
     h3 { font-size: 15px !important; margin-top: 10px; }
     .stDataFrame { font-size: 12px !important; }
-    div[data-testid="stVerticalBlock"] > div { gap: 0.1rem !important; }
+    .krw-text { color: #ff4b4b; font-size: 11px; font-weight: bold; margin-top: -10px; }
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 최상단: 공통 설정 (환율 및 로드맵)
+# 금액 문자열에서 숫자만 추출하는 함수
+def parse_money(money_str):
+    try:
+        return float(re.sub(r'[^\d.]', '', money_str))
+    except:
+        return 0.0
+
+# 3. 최상단: 공통 설정
 st.title("🚀 팍스2000: 130억 로드맵 관리 시스템")
 
 c1, c2, c3, c4, c5 = st.columns(5)
-with c1: ex_rate = st.number_input("현재 환율", value=1442.50, step=0.1)
-with c2: 
-    g1_p = st.text_input("1단계 목표", value="$50,000")
-    g1_d = st.text_input("목표일1", value="2026.03")
-with c3: 
-    g2_p = st.text_input("2단계 목표", value="$200,000")
-    g2_d = st.text_input("목표일2", value="2026.05")
-with c4: 
-    g3_p = st.text_input("3단계 목표", value="$2,000,000")
-    g3_d = st.text_input("목표일3", value="2026.07")
-with c5: 
-    g4_p = st.text_input("4단계 목표", value="$10,000,000")
-    g4_d = st.text_input("목표일4", value="2026.12")
+with c1:
+    ex_rate = st.number_input("현재 환율(₩)", value=1442.50, step=0.1)
+
+# 목표 설정 및 원화 자동 계산
+def goal_col(col, label, default_p, default_d):
+    with col:
+        p = st.text_input(f"{label} 목표($)", value=default_p)
+        d = st.text_input(f"{label} 날짜", value=default_d)
+        krw_val = parse_money(p) * ex_rate
+        st.markdown(f"<p class='krw-text'>≈ ₩{krw_val:,.0f}</p>", unsafe_allow_html=True)
+    return p, d
+
+g1_p, g1_d = goal_col(c2, "1단계", "$50,000", "2026.03")
+g2_p, g2_d = goal_col(c3, "2단계", "$200,000", "2026.05")
+g3_p, g3_d = goal_col(c4, "3단계", "$2,000,000", "2026.07")
+g4_p, g4_d = goal_col(c5, "4단계", "$10,000,000", "2026.12")
 
 st.divider()
 
@@ -75,7 +86,7 @@ with tab2:
             df = df.drop(columns=cols_to_drop, errors='ignore')
             
             st.session_state.main_df = df.dropna(how='all')
-            st.success("데이터 로드 완료! '비고2'와 'NO'는 삭제했어.")
+            st.success("데이터 로드 완료!")
         except Exception as e:
             st.error(f"파일 에러: {e}")
 
