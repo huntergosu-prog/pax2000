@@ -17,26 +17,9 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 2. 유틸리티 함수 (한국 시간 적용)
-try:
-    import yfinance as yf
-    YF_AVAILABLE = True
-except ImportError:
-    YF_AVAILABLE = False
-
-@st.cache_data(ttl=14400)
-def get_exchange_rate():
-    # 한국 시간(KST) 계산: UTC + 9시간
-    kst_now = datetime.utcnow() + timedelta(hours=9)
-    time_str = kst_now.strftime("%m/%d %H:%M")
-    
-    if not YF_AVAILABLE: return 1442.50, time_str
-    try:
-        ticker = yf.Ticker("USDKRW=X")
-        data = ticker.history(period="1d")
-        rate = round(data['Close'].iloc[-1], 2)
-        return rate, time_str
-    except: return 1442.50, time_str
+# 2. 유틸리티 함수
+def get_kst_time():
+    return (datetime.utcnow() + timedelta(hours=9)).strftime("%m/%d %H:%M")
 
 def parse_money(money_str):
     if pd.isna(money_str) or str(money_str).strip() == "" or str(money_str).lower() == "nan": return 0.0
@@ -52,34 +35,31 @@ if 'monthly_data' not in st.session_state:
     st.session_state.monthly_data = {"2026": pd.DataFrame(0.0, index=["수익($)", "수익(₩)"], columns=[f"{i}월" for i in range(1, 13)])}
 if 'loan_df' not in st.session_state: 
     st.session_state.loan_df = pd.DataFrame([
-        {"대출처": "KB라이프", "대출금액": 50000000.0, "상환금액": 0.0, "비고": ""},
-        {"대출처": "하나생명", "대출금액": 90000000.0, "상환금액": 0.0, "비고": ""},
-        {"대출처": "마이너스", "대출금액": 100000000.0, "상환금액": 0.0, "비고": ""}
+        {"대출처": "KB라이프", "대출금액": 50000000, "상환금액": 0, "비고": ""},
+        {"대출처": "하나생명", "대출금액": 90000000, "상환금액": 0, "비고": ""},
+        {"대출처": "마이너스", "대출금액": 100000000, "상환금액": 0, "비고": ""}
     ])
 if 'summary_data' not in st.session_state: 
     st.session_state.summary_data = {"투입": "₩40,000,000", "잔액": "₩18,012,969", "수익": "-₩21,987,031", "본전": "$14,410.42"}
 
 # 4. 상단 대시보드
 st.title("🚀 팍스2000: 130억 로드맵 통합 관리")
-ex_rate, update_time = get_exchange_rate()
+cur_ex = st.sidebar.number_input("현재 환율", value=1442.5, step=0.1)
+st.sidebar.markdown(f"**최종 갱신(KST): {get_kst_time()}**")
 
-c1, c2, c3, c4, c5 = st.columns(5)
-with c1:
-    if st.button("🔄 환율 갱신"): st.cache_data.clear(); st.rerun()
-    cur_ex = st.number_input("현재 환율", value=ex_rate, step=0.1)
-    st.markdown(f"<p class='update-time'>최종 갱신(KST): {update_time}</p>", unsafe_allow_html=True)
-
+# 로드맵 목표가 섹션
+c1, c2, c3, c4 = st.columns(4)
 def goal_box(col, label, def_p, def_d):
     with col:
-        p_val = st.text_input(f"{label} 목표($)", value=def_p)
-        krw = parse_money(p_val) * (cur_ex if cur_ex else 1442.5)
+        p_val = st.text_input(f"{label} 목표($)", value=def_p, key=f"p_{label}")
+        krw = parse_money(p_val) * cur_ex
         st.markdown(f"<p class='krw-label'>≈ ₩{krw:,.0f}</p>", unsafe_allow_html=True)
         st.text_input(f"{label} 날짜", value=def_d, key=f"d_{label}")
 
-goal_box(c2, "1단계", "$50,000", "2026.03")
-goal_box(c3, "2단계", "$200,000", "2026.05")
-goal_box(c4, "3단계", "$2,000,000", "2026.07")
-goal_box(c5, "4단계", "$10,000,000", "2026.12")
+goal_box(c1, "1단계", "$50,000", "2026.03")
+goal_box(c2, "2단계", "$200,000", "2026.05")
+goal_box(c3, "3단계", "$2,000,000", "2026.07")
+goal_box(c4, "4단계", "$10,000,000", "2026.12")
 
 st.divider()
 
@@ -110,38 +90,43 @@ with tab2:
                     df = raw.iloc[r:].copy()
                     df.columns = df.iloc[0]; df = df[1:].reset_index(drop=True)
                     st.session_state.main_df = df.loc[:, ~df.columns.duplicated()].dropna(how='all')
-            st.success("데이터 로드 완료!")
+            st.success("데이터 동기화 완료!")
         except Exception as e: st.error(f"실패: {e}")
-    st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key="main_editor_v19")
+    st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key="main_editor_v20")
 
 with tab1:
     ca, cb, cc, cd = st.columns(4)
     s = st.session_state.summary_data
-    safe_ex = cur_ex if cur_ex and cur_ex > 0 else 1442.5
     def m(col, l, val, krw):
         with col:
-            st.caption(l); num = parse_money(val); usd_val = num if "본전" in l else num / safe_ex
+            st.caption(l); num = parse_money(val); usd_val = num if "본전" in l else num / cur_ex
             st.subheader(f"${usd_val:,.2f}"); st.markdown(f"<p class='krw-label'>{krw}</p>", unsafe_allow_html=True)
     m(ca, "총 투입금", s.get('투입', '0'), s.get('투입', '₩0')); m(cb, "현재 잔액", s.get('잔액', '0'), s.get('잔액', '₩0'))
-    m(cc, "누적 수익", s.get('수익', '0'), s.get('수익', '₩0')); m(cd, "본전 수익목표", s.get('본전', '0'), f"₩{parse_money(s.get('본전', '0'))*safe_ex:,.0f}")
+    m(cc, "누적 수익", s.get('수익', '0'), s.get('수익', '₩0')); m(cd, "본전 수익목표", s.get('본전', '0'), f"₩{parse_money(s.get('본전', '0'))*cur_ex:,.0f}")
     st.write("---")
     st.subheader("🗓️ 연도별 수익 현황")
     st.table(st.session_state.monthly_data["2026"].applymap(lambda x: f"{x:,.2f}"))
 
 with tab3:
     st.subheader("💳 대출 & 상환 관리")
-    st.info("💡 줄 추가(+) 후 내용을 쓰면 실시간 저장돼! 쉼표는 아래 합계에서 확인해 줘.")
+    st.info("💡 탭(Tab)이나 엔터를 눌러도 데이터가 안전하게 저장돼! 쉼표는 자동 표시!")
     
-    # [핵심] 줄 추가 시 데이터 보존을 위해 에디터 상태를 세션에 즉시 동기화
-    edited_loan = st.data_editor(
+    # [핵심 수정: 3자리 쉼표 및 탭 입력 보존]
+    # on_change 대신 에디터 자체의 데이터 상태를 세션에 즉시 반영
+    loan_editor_df = st.data_editor(
         st.session_state.loan_df, 
         num_rows="dynamic", 
         use_container_width=True,
-        key="loan_editor_v19"
+        column_config={
+            "대출금액": st.column_config.NumberColumn("대출금액(₩)", format="%d", min_value=0),
+            "상환금액": st.column_config.NumberColumn("상환금액(₩)", format="%d", min_value=0)
+        },
+        key="loan_editor_v20"
     )
     
-    if not edited_loan.equals(st.session_state.loan_df):
-        st.session_state.loan_df = edited_loan
+    # 탭 이동 시에도 세션에 강제 업데이트
+    if not loan_editor_df.equals(st.session_state.loan_df):
+        st.session_state.loan_df = loan_editor_df
         st.rerun()
 
     tl = st.session_state.loan_df['대출금액'].apply(parse_money).sum()
