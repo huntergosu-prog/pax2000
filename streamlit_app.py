@@ -12,8 +12,8 @@ st.markdown("""
     div[data-testid="stMetricValue"] { font-size: 16px !important; }
     h1 { font-size: 20px !important; margin-bottom: 5px; }
     .krw-label { color: #ff4b4b; font-size: 12px; font-weight: bold; margin-top: -5px; margin-bottom: 5px; }
+    .update-time { font-size: 11px; color: #666; margin-top: 5px; }
     .total-row { background-color: #f8f9fa; font-weight: bold; border-top: 2px solid #ff4b4b; padding: 15px; margin-top: 10px; border-radius: 8px; font-size: 14px; }
-    .hl-parser { background-color: #f0f7ff; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px dashed #007bff; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -29,12 +29,18 @@ def parse_money(money_str):
     except: return 0.0
 
 # 3. 데이터 세션 상태 초기화
-for key in ['main_df', 'monthly_data', 'loan_df', 'summary_data']:
-    if key not in st.session_state:
-        if key == 'main_df': st.session_state.main_df = pd.DataFrame(columns=["날짜", "종목명", "포지션", "매수가", "매도가", "수익", "비고"])
-        if key == 'monthly_data': st.session_state.monthly_data = {"2026": pd.DataFrame(0.0, index=["수익($)", "수익(₩)"], columns=[f"{i}월" for i in range(1, 13)])}
-        if key == 'loan_df': st.session_state.loan_df = pd.DataFrame([{"대출처": "KB라이프", "대출금액": 50000000.0, "상환금액": 0.0, "비고": ""}, {"대출처": "하나생명", "대출금액": 90000000.0, "상환금액": 0.0, "비고": ""}, {"대출처": "마이너스", "대출금액": 100000000.0, "상환금액": 0.0, "비고": ""}])
-        if key == 'summary_data': st.session_state.summary_data = {"투입": "₩40,000,000", "잔액": "₩16,818,623", "수익": "-₩21,981,377", "본전": "$14,513.95"}
+if 'main_df' not in st.session_state: 
+    st.session_state.main_df = pd.DataFrame(columns=["날짜", "종목명", "포지션", "매수가", "매도가", "수익", "비고"])
+if 'monthly_data' not in st.session_state: 
+    st.session_state.monthly_data = {"2026": pd.DataFrame(0.0, index=["수익($)", "수익(₩)"], columns=[f"{i}월" for i in range(1, 13)])}
+if 'loan_df' not in st.session_state: 
+    st.session_state.loan_df = pd.DataFrame([
+        {"대출처": "KB라이프", "대출금액": 50000000.0, "상환금액": 0.0, "비고": ""},
+        {"대출처": "하나생명", "대출금액": 90000000.0, "상환금액": 0.0, "비고": ""},
+        {"대출처": "마이너스", "대출금액": 100000000.0, "상환금액": 0.0, "비고": ""}
+    ])
+if 'summary_data' not in st.session_state: 
+    st.session_state.summary_data = {"투입": "₩40,000,000", "잔액": "₩16,818,623", "수익": "-₩21,981,377", "본전": "$14,513.95"}
 
 # 4. 상단 대시보드
 st.title("🚀 팍스2000: 130억 로드맵 통합 관리")
@@ -42,6 +48,7 @@ c1, c2, c3, c4, c5 = st.columns(5)
 with c1:
     if st.button("🔄 환율 갱신"): st.cache_data.clear(); st.rerun()
     cur_ex = st.number_input("현재 환율", value=1514.50, step=0.1)
+    st.markdown(f"<p class='update-time'>최종 갱신(KST): {get_kst_time()}</p>", unsafe_allow_html=True)
 
 def goal_box(col, label, def_p, def_d):
     with col:
@@ -61,74 +68,94 @@ st.divider()
 tab1, tab2, tab3 = st.tabs(["📊 자산 통계", "📝 실시간 매매일지", "💸 대출 & 상환"])
 
 with tab2:
-    # --- [V30 핵심] 여러 줄을 엑셀 1줄로 요약하는 지능형 파서 ---
-    st.markdown('<div class="hl-parser">', unsafe_allow_html=True)
-    st.subheader("🔗 하이퍼리퀴드 거래 통합 (엑셀 복붙용)")
-    hl_input = st.text_area("쪼개진 HL 거래 이력들을 모두 붙여넣어줘", height=150, placeholder="여러 줄을 한꺼번에 복사해서 넣으세요")
+    st.subheader("📉 매매 기록 데이터 관리")
+    up_file = st.file_uploader("파일 업로드 (CSV)", type=["csv"], label_visibility="collapsed")
+    if up_file:
+        try:
+            try: content = up_file.getvalue().decode('utf-8-sig')
+            except: content = up_file.getvalue().decode('cp949')
+            raw = pd.read_csv(io.StringIO(content), header=None).fillna("")
+            for r in range(len(raw)):
+                row_vals = [str(x).strip() for x in raw.iloc[r].tolist()]
+                row_str = " ".join(row_vals)
+                if "현 잔액" in row_str:
+                    for c, val in enumerate(row_vals):
+                        if "현 잔액" in val and r+1 < len(raw): st.session_state.summary_data["잔액"] = str(raw.iloc[r+1, c])
+                        if "본전" in val and "$" in val and r+1 < len(raw): st.session_state.summary_data["본전"] = str(raw.iloc[r+1, c])
+                        if "수익" in val and "누적" in val and r+1 < len(raw): st.session_state.summary_data["수익"] = str(raw.iloc[r+1, c])
+                        if "총 투입금" in val and r+1 < len(raw): st.session_state.summary_data["투입"] = str(raw.iloc[r+1, c])
+                if "1월" in row_str:
+                    c_idx = next(i for i, v in enumerate(row_vals) if "1월" in v)
+                    m_usd = [parse_money(x) for x in raw.iloc[r+1, c_idx:c_idx+12].tolist()]
+                    m_krw = [parse_money(x) for x in raw.iloc[r+2, c_idx:c_idx+12].tolist()]
+                    st.session_state.monthly_data["2026"] = pd.DataFrame([m_usd, m_krw], columns=[f"{i}월" for i in range(1, 13)], index=["수익($)", "수익(₩)"])
+                if "종목명" in row_str:
+                    df = raw.iloc[r:].copy()
+                    df.columns = df.iloc[0]; df = df[1:].reset_index(drop=True)
+                    st.session_state.main_df = df.loc[:, ~df.columns.duplicated()].dropna(subset=['종목명'], how='all')
+            st.success("데이터 로드 완료!")
+        except Exception as e: st.error(f"실패: {e}")
     
-    if st.button("🪄 엑셀 양식 한 줄로 요약"):
-        if hl_input:
-            lines = hl_input.strip().split('\n')
-            raw_data = []
-            for line in lines:
-                parts = re.split(r'\t|\s{2,}', line.strip())
-                if len(parts) >= 4:
-                    raw_data.append({
-                        "time": parts[0].split(' ')[0],
-                        "asset": parts[1].split('-')[0].split('/')[0],
-                        "side": parts[2],
-                        "price": parse_money(parts[3]),
-                        "pnl": parse_money(parts[-1])
-                    })
-            
-            if raw_data:
-                df_raw = pd.DataFrame(raw_data)
-                # 자산별로 그룹화해서 통합 계산
-                for asset, group in df_raw.groupby('asset'):
-                    # 날짜는 가장 첫 번째 데이터 기준
-                    trade_date = group['time'].iloc[0]
-                    # 총 수익 합산
-                    total_pnl = group['pnl'].sum()
-                    
-                    # 매수/매도 단가 분리 계산
-                    # Long: Open=매수, Close=매도 | Short: Open=매도, Close=매수
-                    open_prices = group[group['side'].str.contains("Open|Buy")]['price']
-                    close_prices = group[group['side'].str.contains("Close|Sell")]['price']
-                    
-                    avg_open = open_prices.mean() if not open_prices.empty else 0
-                    avg_close = close_prices.mean() if not close_prices.empty else 0
-                    
-                    # 포지션 판단
-                    is_long = any("Long" in s or "Buy" in s for s in group['side'])
-                    pos_str = "Long" if is_long else "Short"
-                    
-                    # 엑셀 7칸 양식: [날짜] [종목명] [포지션] [매수가] [매도가] [수익] [비고]
-                    if is_long:
-                        buy_p = f"{avg_open:.2f}" if avg_open > 0 else ""
-                        sell_p = f"{avg_close:.2f}" if avg_close > 0 else ""
-                    else: # Short
-                        buy_p = f"{avg_close:.2f}" if avg_close > 0 else ""
-                        sell_p = f"{avg_open:.2f}" if avg_open > 0 else ""
-                    
-                    excel_line = f"{trade_date}\t{asset}\t{pos_str}\t{buy_p}\t{sell_p}\t{total_pnl:.2f}\tHL 통합정리"
-                    st.code(excel_line, language="text")
-                st.caption("▲ 위 박스 내용을 복사해서 엑셀 '날짜' 칸부터 붙여넣으면 끝!")
-            else:
-                st.error("데이터를 분석할 수 없어. 하이퍼리퀴드 Fills 내용을 그대로 긁어와줘!")
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key="main_editor_v31")
+    
+    c_s1, c_d1 = st.columns(2)
+    with c_s1:
+        if st.button("💾 매매일지 저장"): st.success("세션에 저장되었습니다.")
+    with c_d1:
+        st.download_button("📥 매매일지 다운로드", st.session_state.main_df.to_csv(index=False).encode('utf-8-sig'), "trading_log.csv", "text/csv")
 
-    # 매매일지 본문 로직 유지
-    st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key="main_editor_v30")
+with tab1:
+    ca, cb, cc, cd = st.columns(4)
+    s = st.session_state.summary_data
+    def m(col, l, val, krw):
+        with col:
+            st.caption(l); num = parse_money(val); usd_val = num if "본전" in l else num / cur_ex
+            st.subheader(f"${usd_val:,.2f}"); st.markdown(f"<p class='krw-label'>{krw}</p>", unsafe_allow_html=True)
+    m(ca, "총 투입금", s.get('투입', '0'), s.get('투입', '₩0'))
+    m(cb, "현재 잔액", s.get('잔액', '0'), s.get('잔액', '₩0'))
+    m(cc, "누적 수익", s.get('수익', '0'), s.get('수익', '₩0'))
+    m(cd, "본전 수익목표", s.get('본전', '0'), f"₩{parse_money(s.get('본전', '0'))*cur_ex:,.0f}")
+    st.write("---")
+    st.subheader("🗓️ 월별 수익 현황")
+    st.table(st.session_state.monthly_data["2026"].applymap(lambda x: f"{x:,.2f}"))
 
 with tab3:
     st.subheader("💸 대출 & 상환 관리")
-    loan_editor_df = st.data_editor(st.session_state.loan_df, num_rows="dynamic", use_container_width=True,
-                                    column_config={"대출금액": st.column_config.NumberColumn("대출금액(₩)", format="%,d"),
-                                                   "상환금액": st.column_config.NumberColumn("상환금액(₩)", format="%,d")},
-                                    key="loan_editor_v30")
+    st.info("💡 금액을 입력하면 자동으로 3자리마다 쉼표(,)가 찍히며, 탭(Tab) 이동 시에도 데이터가 보존됩니다.")
+    
+    # 3자리 쉼표 표시 및 탭 입력 보존 로직
+    # 데이터를 숫자로 변환하여 에디터에 전달
+    for col in ['대출금액', '상환금액']:
+        st.session_state.loan_df[col] = st.session_state.loan_df[col].apply(parse_money)
+
+    loan_editor_df = st.data_editor(
+        st.session_state.loan_df, 
+        num_rows="dynamic", 
+        use_container_width=True,
+        column_config={
+            "대출금액": st.column_config.NumberColumn("대출금액(₩)", format="%,d", min_value=0),
+            "상환금액": st.column_config.NumberColumn("상환금액(₩)", format="%,d", min_value=0)
+        },
+        key="loan_editor_v31"
+    )
+    
     if not loan_editor_df.equals(st.session_state.loan_df):
         st.session_state.loan_df = loan_editor_df
         st.rerun()
-    tl = st.session_state.loan_df['대출금액'].apply(parse_money).sum()
-    tr = st.session_state.loan_df['상환금액'].apply(parse_money).sum()
-    st.markdown(f'<div class="total-row">💰 총 대출: ₩{tl:,.0f} | ✅ 총 상환: ₩{tr:,.0f} | 🚨 잔액: ₩{tl-tr:,.0f}</div>', unsafe_allow_html=True)
+
+    tl = st.session_state.loan_df['대출금액'].sum()
+    tr = st.session_state.loan_df['상환금액'].sum()
+    
+    st.markdown(f"""
+    <div class="total-row">
+        💰 총 대출액: ₩{tl:,.0f} &nbsp;&nbsp; | &nbsp;&nbsp; 
+        <span style="color: blue;">✅ 총 상환액: ₩{tr:,.0f}</span> &nbsp;&nbsp; | &nbsp;&nbsp; 
+        <span style="color: red;">🚨 남은 잔액: ₩{tl-tr:,.0f}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    c_s2, c_d2 = st.columns(2)
+    with c_s2:
+        if st.button("💾 대출 데이터 저장"): st.success("대출 데이터가 저장되었습니다.")
+    with c_d2:
+        st.download_button("📥 대출내역 다운로드", st.session_state.loan_df.to_csv(index=False).encode('utf-8-sig'), "loans.csv", "text/csv")
