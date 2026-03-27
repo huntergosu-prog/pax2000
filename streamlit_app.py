@@ -72,83 +72,18 @@ with tab2:
     up_file = st.file_uploader("파일 업로드 (CSV)", type=["csv"], label_visibility="collapsed")
     if up_file:
         try:
-            # [핵심 수정: 인코딩 에러 방지] - UTF-8 실패 시 CP949로 재시도
             try: content = up_file.getvalue().decode('utf-8-sig')
             except: content = up_file.getvalue().decode('cp949')
-            
             raw = pd.read_csv(io.StringIO(content), header=None).fillna("")
-            
-            # [뉴 양식 파싱 로직]
             for r in range(len(raw)):
                 row_vals = [str(x).strip() for x in raw.iloc[r].tolist()]
-                # 요약 정보 (2번 행 근처)
                 if "현 잔액" in " ".join(row_vals):
                     for c, val in enumerate(row_vals):
                         if "현 잔액" in val and r+1 < len(raw): st.session_state.summary_data["잔액"] = str(raw.iloc[r+1, c])
                         if "본전" in val and "$" in val and r+1 < len(raw): st.session_state.summary_data["본전"] = str(raw.iloc[r+1, c])
                         if "수익" in val and "누적" in val and r+1 < len(raw): st.session_state.summary_data["수익"] = str(raw.iloc[r+1, c])
                         if "총 투입금" in val and r+1 < len(raw): st.session_state.summary_data["투입"] = str(raw.iloc[r+1, c])
-                
-                # 월별 수익 (3번 행 근처)
                 if "1월" in row_vals:
                     c_idx = row_vals.index("1월")
                     m_usd = [parse_money(x) for x in raw.iloc[r+1, c_idx:c_idx+12].tolist()]
-                    m_krw = [parse_money(x) for x in raw.iloc[r+2, c_idx:c_idx+12].tolist()]
-                    st.session_state.monthly_data["2026"] = pd.DataFrame([m_usd, m_krw], columns=[f"{i}월" for i in range(1, 13)], index=["수익($)", "수익(₩)"])
-
-                # 매매일지 (7번 행 근처 '종목명' 찾기)
-                if "종목명" in row_vals:
-                    df = raw.iloc[r:].copy()
-                    df.columns = df.iloc[0]; df = df[1:].reset_index(drop=True)
-                    st.session_state.main_df = df.loc[:, ~df.columns.duplicated()].dropna(subset=['종목명'], how='all')
-            st.success("새로운 양식 동기화 완료!")
-        except Exception as e: st.error(f"실패: {e}")
-    
-    st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key="main_editor_v22")
-
-with tab1:
-    ca, cb, cc, cd = st.columns(4)
-    s = st.session_state.summary_data
-    def m(col, l, val, krw):
-        with col:
-            st.caption(l); num = parse_money(val); usd_val = num if "본전" in l else num / cur_ex
-            st.subheader(f"${usd_val:,.2f}"); st.markdown(f"<p class='krw-label'>{krw}</p>", unsafe_allow_html=True)
-    m(ca, "총 투입금", s.get('투입', '0'), s.get('투입', '₩0'))
-    m(cb, "현재 잔액", s.get('잔액', '0'), s.get('잔액', '₩0'))
-    m(cc, "누적 수익", s.get('수익', '0'), s.get('수익', '₩0'))
-    m(cd, "본전 수익목표", s.get('본전', '0'), f"₩{parse_money(s.get('본전', '0'))*cur_ex:,.0f}")
-    st.write("---")
-    st.subheader("🗓️ 월별 수익 현황 (뉴 양식 적용)")
-    st.table(st.session_state.monthly_data["2026"].applymap(lambda x: f"{x:,.2f}"))
-
-with tab3:
-    st.subheader("💸 대출 & 상환 관리 (탭 이동 보존)")
-    st.info("💡 이제 탭(Tab) 키를 눌러도 데이터가 사라지지 않고 바로 아래 합계에 반영돼!")
-    
-    # 3자리 쉼표 및 탭 입력 보존 로직
-    loan_editor_df = st.data_editor(
-        st.session_state.loan_df, 
-        num_rows="dynamic", 
-        use_container_width=True,
-        column_config={
-            "대출금액": st.column_config.NumberColumn("대출금액(₩)", format="%d", min_value=0),
-            "상환금액": st.column_config.NumberColumn("상환금액(₩)", format="%d", min_value=0)
-        },
-        key="loan_editor_v22"
-    )
-    
-    if not loan_editor_df.equals(st.session_state.loan_df):
-        st.session_state.loan_df = loan_editor_df
-        st.rerun()
-
-    tl = st.session_state.loan_df['대출금액'].apply(parse_money).sum()
-    tr = st.session_state.loan_df['상환금액'].apply(parse_money).sum()
-    
-    st.markdown(f"""
-    <div class="total-row">
-        💰 총 대출액: ₩{tl:,.0f} &nbsp;&nbsp; | &nbsp;&nbsp; 
-        <span style="color: blue;">✅ 총 상환액: ₩{tr:,.0f}</span> &nbsp;&nbsp; | &nbsp;&nbsp; 
-        <span style="color: red;">🚨 남은 잔액: ₩{tl-tr:,.0f}</span>
-    </div>
-    """, unsafe_allow_html=True)
-    st.download_button("📥 내역 다운로드", st.session_state.loan_df.to_csv(index=False).encode('utf-8-sig'), "loans.csv", "text/csv")
+                    m_krw = [parse_money(x) for x in raw.iloc[r+2, c_idx:c_
