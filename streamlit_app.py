@@ -94,7 +94,17 @@ with tab2:
                     st.session_state.main_df = df.loc[:, ~df.columns.duplicated()].dropna(subset=['종목명'], how='all')
             st.success("데이터 로드 완료!")
         except Exception as e: st.error(f"실패: {e}")
-    st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key="main_editor_v24")
+    
+    # 일지 에디터
+    st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key="main_editor_v25")
+    
+    # [복구] 매매일지 버튼 섹션
+    c_s1, c_d1 = st.columns(2)
+    with c_s1:
+        if st.button("💾 매매일지 저장"): st.success("매매 기록이 세션에 저장됐어!")
+    with c_d1:
+        csv_log = st.session_state.main_df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 매매일지 다운로드", csv_log, "trading_log.csv", "text/csv")
 
 with tab1:
     ca, cb, cc, cd = st.columns(4)
@@ -115,7 +125,7 @@ with tab3:
     st.subheader("💸 대출 & 상환 관리")
     st.info("💡 이제 금액을 쓰면 자동으로 쉼표(,)가 찍히고 탭 이동 시에도 유지돼!")
     
-    # [핵심] 3자리 쉼표 표시 강제 설정
+    # 3자리 쉼표 표시 및 탭 입력 보존
     loan_editor_df = st.data_editor(
         st.session_state.loan_df, 
         num_rows="dynamic", 
@@ -124,7 +134,7 @@ with tab3:
             "대출금액": st.column_config.NumberColumn("대출금액(₩)", format="%,d", min_value=0),
             "상환금액": st.column_config.NumberColumn("상환금액(₩)", format="%,d", min_value=0)
         },
-        key="loan_editor_v24"
+        key="loan_editor_v25"
     )
     
     if not loan_editor_df.equals(st.session_state.loan_df):
@@ -141,4 +151,11 @@ with tab3:
         <span style="color: red;">🚨 남은 잔액: ₩{tl-tr:,.0f}</span>
     </div>
     """, unsafe_allow_html=True)
-    st.download_button("📥 내역 다운로드", st.session_state.loan_df.to_csv(index=False).encode('utf-8-sig'), "loans.csv", "text/csv")
+    
+    # [복구] 대출 버튼 섹션
+    c_s2, c_d2 = st.columns(2)
+    with c_s2:
+        if st.button("💾 대출 데이터 저장"): st.success("금융 데이터가 안전하게 업데이트됐어!")
+    with c_d2:
+        loan_csv = st.session_state.loan_df.to_csv(index=False).encode('utf-8-sig')
+        st.download_button("📥 대출내역 다운로드", loan_csv, "loans.csv", "text/csv")
