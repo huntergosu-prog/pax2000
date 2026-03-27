@@ -35,9 +35,9 @@ if 'monthly_data' not in st.session_state:
     st.session_state.monthly_data = {"2026": pd.DataFrame(0.0, index=["수익($)", "수익(₩)"], columns=[f"{i}월" for i in range(1, 13)])}
 if 'loan_df' not in st.session_state: 
     st.session_state.loan_df = pd.DataFrame([
-        {"대출처": "KB라이프", "대출금액": 50000000, "상환금액": 0, "비고": ""},
-        {"대출처": "하나생명", "대출금액": 90000000, "상환금액": 0, "비고": ""},
-        {"대출처": "마이너스", "대출금액": 100000000, "상환금액": 0, "비고": ""}
+        {"대출처": "KB라이프", "대출금액": 50000000.0, "상환금액": 0.0, "비고": ""},
+        {"대출처": "하나생명", "대출금액": 90000000.0, "상환금액": 0.0, "비고": ""},
+        {"대출처": "마이너스", "대출금액": 100000000.0, "상환금액": 0.0, "비고": ""}
     ])
 if 'summary_data' not in st.session_state: 
     st.session_state.summary_data = {"투입": "₩40,000,000", "잔액": "₩16,818,623", "수익": "-₩21,981,377", "본전": "$14,513.95"}
@@ -86,4 +86,59 @@ with tab2:
                 if "1월" in row_vals:
                     c_idx = row_vals.index("1월")
                     m_usd = [parse_money(x) for x in raw.iloc[r+1, c_idx:c_idx+12].tolist()]
-                    m_krw = [parse_money(x) for x in raw.iloc[r+2, c_idx:c_
+                    m_krw = [parse_money(x) for x in raw.iloc[r+2, c_idx:c_idx+12].tolist()]
+                    st.session_state.monthly_data["2026"] = pd.DataFrame([m_usd, m_krw], columns=[f"{i}월" for i in range(1, 13)], index=["수익($)", "수익(₩)"])
+                if "종목명" in row_vals:
+                    df = raw.iloc[r:].copy()
+                    df.columns = df.iloc[0]; df = df[1:].reset_index(drop=True)
+                    st.session_state.main_df = df.loc[:, ~df.columns.duplicated()].dropna(subset=['종목명'], how='all')
+            st.success("데이터 로드 완료!")
+        except Exception as e: st.error(f"실패: {e}")
+    st.session_state.main_df = st.data_editor(st.session_state.main_df, num_rows="dynamic", use_container_width=True, key="main_editor_v24")
+
+with tab1:
+    ca, cb, cc, cd = st.columns(4)
+    s = st.session_state.summary_data
+    def m(col, l, val, krw):
+        with col:
+            st.caption(l); num = parse_money(val); usd_val = num if "본전" in l else num / cur_ex
+            st.subheader(f"${usd_val:,.2f}"); st.markdown(f"<p class='krw-label'>{krw}</p>", unsafe_allow_html=True)
+    m(ca, "총 투입금", s.get('투입', '0'), s.get('투입', '₩0'))
+    m(cb, "현재 잔액", s.get('잔액', '0'), s.get('잔액', '₩0'))
+    m(cc, "누적 수익", s.get('수익', '0'), s.get('수익', '₩0'))
+    m(cd, "본전 수익목표", s.get('본전', '0'), f"₩{parse_money(s.get('본전', '0'))*cur_ex:,.0f}")
+    st.write("---")
+    st.subheader("🗓️ 월별 수익 현황")
+    st.table(st.session_state.monthly_data["2026"].applymap(lambda x: f"{x:,.2f}"))
+
+with tab3:
+    st.subheader("💸 대출 & 상환 관리")
+    st.info("💡 이제 금액을 쓰면 자동으로 쉼표(,)가 찍히고 탭 이동 시에도 유지돼!")
+    
+    # [핵심] 3자리 쉼표 표시 강제 설정
+    loan_editor_df = st.data_editor(
+        st.session_state.loan_df, 
+        num_rows="dynamic", 
+        use_container_width=True,
+        column_config={
+            "대출금액": st.column_config.NumberColumn("대출금액(₩)", format="%,d", min_value=0),
+            "상환금액": st.column_config.NumberColumn("상환금액(₩)", format="%,d", min_value=0)
+        },
+        key="loan_editor_v24"
+    )
+    
+    if not loan_editor_df.equals(st.session_state.loan_df):
+        st.session_state.loan_df = loan_editor_df
+        st.rerun()
+
+    tl = st.session_state.loan_df['대출금액'].apply(parse_money).sum()
+    tr = st.session_state.loan_df['상환금액'].apply(parse_money).sum()
+    
+    st.markdown(f"""
+    <div class="total-row">
+        💰 총 대출액: ₩{tl:,.0f} &nbsp;&nbsp; | &nbsp;&nbsp; 
+        <span style="color: blue;">✅ 총 상환액: ₩{tr:,.0f}</span> &nbsp;&nbsp; | &nbsp;&nbsp; 
+        <span style="color: red;">🚨 남은 잔액: ₩{tl-tr:,.0f}</span>
+    </div>
+    """, unsafe_allow_html=True)
+    st.download_button("📥 내역 다운로드", st.session_state.loan_df.to_csv(index=False).encode('utf-8-sig'), "loans.csv", "text/csv")
